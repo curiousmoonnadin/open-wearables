@@ -406,9 +406,16 @@ class Polar247Data(Base247DataTemplate):
         start_time: datetime,
         end_time: datetime,
     ) -> list[dict[str, Any]]:
-        params = {"from": start_time.date().isoformat(), "to": end_time.date().isoformat()}
-        response = self._make_api_request(db, user_id, "/v3/users/continuous-heart-rate", params=params)
-        return response if isinstance(response, list) else []
+        results: list[dict[str, Any]] = []
+        chunk_start = start_time
+        while chunk_start < end_time:
+            chunk_end = min(chunk_start + timedelta(days=27), end_time)
+            params = {"from": chunk_start.date().isoformat(), "to": chunk_end.date().isoformat()}
+            response = self._make_api_request(db, user_id, "/v3/users/continuous-heart-rate", params=params)
+            if isinstance(response, list):
+                results.extend(response)
+            chunk_start = chunk_end + timedelta(days=1)
+        return results
 
     def normalize_continuous_hr(
         self,
@@ -443,9 +450,16 @@ class Polar247Data(Base247DataTemplate):
         start_time: datetime,
         end_time: datetime,
     ) -> list[dict[str, Any]]:
-        params = {"from": start_time.date().isoformat(), "to": end_time.date().isoformat()}
-        response = self._make_api_request(db, user_id, "/v3/users/cardio-load/date", params=params)
-        return response if isinstance(response, list) else []
+        results: list[dict[str, Any]] = []
+        chunk_start = start_time
+        while chunk_start < end_time:
+            chunk_end = min(chunk_start + timedelta(days=27), end_time)
+            params = {"from": chunk_start.date().isoformat(), "to": chunk_end.date().isoformat()}
+            response = self._make_api_request(db, user_id, "/v3/users/cardio-load/date", params=params)
+            if isinstance(response, list):
+                results.extend(response)
+            chunk_start = chunk_end + timedelta(days=1)
+        return results
 
     def normalize_cardio_load(
         self,
@@ -493,26 +507,8 @@ class Polar247Data(Base247DataTemplate):
         start_time: datetime,
         end_time: datetime,
     ) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
-
-        # Bulk endpoint covers the last 28 days
-        bulk = self._make_api_request(db, user_id, "/v3/users/nightly-recharge")
-        if isinstance(bulk, dict):
-            results.extend(bulk.get("recharges", []))
-
-        # Per-date fallback for history older than 28 days (e.g. first sync)
-        cutoff = datetime.now(timezone.utc) - timedelta(days=28)
-        if start_time < cutoff:
-            older_dates = {
-                start_time.date() + timedelta(days=i)
-                for i in range((cutoff.date() - start_time.date()).days + 1)
-            }
-            for d in older_dates:
-                response = self._make_api_request(db, user_id, f"/v3/users/nightly-recharge/{d.isoformat()}")
-                if isinstance(response, dict):
-                    results.append(response)
-
-        return results
+        response = self._make_api_request(db, user_id, "/v3/users/nightly-recharge")
+        return response.get("recharges", []) if isinstance(response, dict) else []
 
     def normalize_nightly_recharge(
         self,
