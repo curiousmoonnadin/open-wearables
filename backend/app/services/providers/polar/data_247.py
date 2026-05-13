@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
+from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
 
 from app.config import settings
@@ -123,18 +124,27 @@ class Polar247Data(Base247DataTemplate):
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
-        return make_authenticated_request(
-            db=db,
-            user_id=user_id,
-            connection_repo=self.connection_repo,
-            oauth=self.oauth,
-            api_base_url=self.api_base_url,
-            provider_name=self.provider_name,
-            endpoint=endpoint,
-            method="GET",
-            params=params,
-            headers=headers,
-        )
+        try:
+            return make_authenticated_request(
+                db=db,
+                user_id=user_id,
+                connection_repo=self.connection_repo,
+                oauth=self.oauth,
+                api_base_url=self.api_base_url,
+                provider_name=self.provider_name,
+                endpoint=endpoint,
+                method="GET",
+                params=params,
+                headers=headers,
+            )
+        except HTTPException as e:
+            # 404 = no data for this date / feature not available on this device
+            if e.status_code == 404:
+                return None
+            # 204 No Content: api_client raises 500 wrapping a JSONDecodeError on empty body
+            if e.status_code == 500 and "Expecting value" in str(e.detail):
+                return None
+            raise
 
     def _parse_time_key(self, key: str) -> time:
         parts = key.split(":")
@@ -337,15 +347,23 @@ class Polar247Data(Base247DataTemplate):
         start_date: datetime,
         end_date: datetime,
     ) -> list[dict[str, Any]]:
-        params = {
-            "from": start_date.date().isoformat(),
-            "to": end_date.date().isoformat(),
-            "steps": "true",
-            "activity_zones": "false",
-            "inactivity_stamps": "false",
-        }
-        response = self._make_api_request(db, user_id, "/v3/users/activities", params=params)
-        return response if isinstance(response, list) else []
+        # Polar enforces a max 28-day window per request
+        results: list[dict[str, Any]] = []
+        chunk_start = start_date
+        while chunk_start < end_date:
+            chunk_end = min(chunk_start + timedelta(days=27), end_date)
+            params = {
+                "from": chunk_start.date().isoformat(),
+                "to": chunk_end.date().isoformat(),
+                "steps": "true",
+                "activity_zones": "false",
+                "inactivity_stamps": "false",
+            }
+            response = self._make_api_request(db, user_id, "/v3/users/activities", params=params)
+            if isinstance(response, list):
+                results.extend(response)
+            chunk_start = chunk_end + timedelta(days=1)
+        return results
 
     def normalize_daily_activity(  # type: ignore[override]
         self,
@@ -442,7 +460,7 @@ class Polar247Data(Base247DataTemplate):
         for d in date_range:
             response = self._make_api_request(db, user_id, f"/v3/users/cardio-load/{d.isoformat()}")
             if response:
-                results.append(response)
+                results.extend(response)
         return results
 
     def normalize_cardio_load(
