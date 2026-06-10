@@ -22,6 +22,7 @@ from app.schemas.model_crud.activities import (
     EventRecordCreate,
     EventRecordDetailCreate,
     HealthScoreCreate,
+    MenstrualCycleDetailCreate,
     ScoreComponent,
     SleepStage,
     TimeSeriesSampleCreate,
@@ -1696,35 +1697,61 @@ class Garmin247Data(Base247DataTemplate):
     # Menstrual Cycle Tracking - /wellness-api/rest/mct
     # -------------------------------------------------------------------------
 
-    def save_mct_data(
+    def _build_mct_record(
         self,
-        db: DbSession,
         user_id: UUID,
         raw_mct: dict[str, Any],
-    ) -> int:
-        """Save menstrual cycle tracking data.
+    ) -> tuple[EventRecordCreate, MenstrualCycleDetailCreate] | None:
+        """Build EventRecord + MenstrualCycleDetailCreate for a cycle summary (no DB interaction)."""
+        summary_id = raw_mct.get("summaryId")
+        period_start = raw_mct.get("periodStartDate")
+        if not summary_id or not period_start:
+            return None
 
-        MCT data includes cycle day, phase, and symptoms.
-        Currently stored as log entry; expand as needed.
+        try:
+            start_dt = datetime.strptime(period_start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
 
-        Args:
-            db: Database session
-            user_id: User ID
-            raw_mct: Raw MCT data from Garmin API
+        cycle_length = raw_mct.get("cycleLength") or raw_mct.get("predictedCycleLength")
+        end_dt = start_dt + timedelta(days=cycle_length) if cycle_length else start_dt
+        phase_type = (raw_mct.get("currentPhaseType") or "unknown").lower()
+        last_updated_ts = raw_mct.get("lastUpdatedTimeInSeconds")
 
-        Returns:
-            0 (logging only for now)
-        """
-        # MCT data structure is complex and user-sensitive
-        # For now, just log that we received it; expand implementation as needed
-        calendar_date = raw_mct.get("calendarDate")
-        cycle_day = raw_mct.get("dayInCycle")
+        record = EventRecordCreate(
+            id=uuid4(),
+            category="menstrual_cycle",
+            type=phase_type,
+            source_name="Garmin",
+            duration_seconds=cycle_length * 24 * 3600 if cycle_length else None,
+            start_datetime=start_dt,
+            end_datetime=end_dt,
+            external_id=summary_id,
+            source=self.provider_name,
+            provider=ProviderName.GARMIN,
+            user_id=user_id,
+        )
 
-        if calendar_date:
-            self.logger.debug(f"MCT data received for user {user_id}: date={calendar_date}, day={cycle_day}")
+        detail = MenstrualCycleDetailCreate(
+            record_id=record.id,
+            day_in_cycle=raw_mct.get("dayInCycle"),
+            current_phase=raw_mct.get("currentPhase"),
+            current_phase_type=raw_mct.get("currentPhaseType"),
+            length_of_current_phase=raw_mct.get("lengthOfCurrentPhase"),
+            days_until_next_phase=raw_mct.get("daysUntilNextPhase"),
+            predicted_cycle_length=raw_mct.get("predictedCycleLength"),
+            is_predicted_cycle=raw_mct.get("isPredictedCycle"),
+            cycle_length=raw_mct.get("cycleLength"),
+            last_updated_at=self._from_epoch_seconds(last_updated_ts) if last_updated_ts else None,
+            has_specified_cycle_length=raw_mct.get("hasSpecifiedCycleLength"),
+            has_specified_period_length=raw_mct.get("hasSpecifiedPeriodLength"),
+            period_length=raw_mct.get("periodLength"),
+            fertile_window_start=raw_mct.get("fertileWindowStart"),
+            length_of_fertile_window=raw_mct.get("lengthOfFertileWindow"),
+            pregnancy_snapshot=[s] if (s := raw_mct.get("pregnancySnapshot")) else None,
+        )
 
-        # TODO: Implement proper MCT storage if needed
-        return 0
+        return record, detail
 
     def _save_segments(
         self,
@@ -1782,6 +1809,7 @@ class Garmin247Data(Base247DataTemplate):
         all_records: list[EventRecordCreate] = []
         all_workout_details: list[EventRecordDetailCreate] = []
         all_sleep_details: list[EventRecordDetailCreate] = []
+        all_mct_details: list[MenstrualCycleDetailCreate] = []
         all_health_scores: list[HealthScoreCreate] = []
 
         for item in items:
@@ -1941,10 +1969,12 @@ class Garmin247Data(Base247DataTemplate):
                         record = self._build_moveiq_record(user_id, item)
                         if record:
                             all_records.append(record)
-
-                    # No-op types
                     case "mct":
-                        self.save_mct_data(db, user_id, item)
+                        result = self._build_mct_record(user_id, item)
+                        if result:
+                            record, detail = result
+                            all_records.append(record)
+                            all_mct_details.append(detail)
 
             except Exception as e:
                 log_structured(
@@ -1979,6 +2009,11 @@ class Garmin247Data(Base247DataTemplate):
             workout_details = [d for d in all_workout_details if d.record_id in inserted_set]
             if workout_details:
                 event_record_service.bulk_create_details(db, workout_details, detail_type="workout")
+
+            # Bulk create MCT details for actually inserted records
+            mct_details = [d for d in all_mct_details if d.record_id in inserted_set]
+            if mct_details:
+                event_record_service.bulk_create_details(db, mct_details, detail_type="menstrual_cycle")  # ty:ignore[invalid-argument-type]
 
             count += len(inserted_ids)
 
