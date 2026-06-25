@@ -14,7 +14,7 @@ from app.api import head_router
 from app.config import settings
 from app.integrations.celery import create_celery
 from app.integrations.sentry import init_sentry
-from app.middlewares import add_cors_middleware
+from app.middlewares import RequestTimingMiddleware, add_cors_middleware
 from app.services import raw_payload_storage
 from app.services.outgoing_webhooks import svix as svix_service
 from app.utils.exceptions import DatetimeParseError, handle_exception
@@ -55,6 +55,7 @@ raw_payload_storage.configure(
 )
 
 add_cors_middleware(api)
+api.add_middleware(RequestTimingMiddleware)  # ty:ignore[invalid-argument-type]
 
 # Mount static files for provider icons
 static_dir = Path(__file__).parent / "static"
