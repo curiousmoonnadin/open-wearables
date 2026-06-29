@@ -5,7 +5,6 @@ Tests the full import flow for Apple HealthKit data via SDK.
 """
 
 import logging
-from datetime import datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -661,5 +660,3 @@ class TestSDKImportUnitConversion:
         assert len(samples) == 1
         assert samples[0].series_type == SeriesType.height
         assert samples[0].value == Decimal("175.2600")
-
-
