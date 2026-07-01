@@ -15,6 +15,7 @@ from sqlalchemy import (
     desc,
     func,
     lateral,
+    literal,
     select,
     text,
     true,
