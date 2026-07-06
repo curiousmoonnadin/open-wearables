@@ -45,11 +45,20 @@ class AppService[
         raise_404: bool = False,
         print_log: bool = True,
     ) -> ModelType | None:
-        # For str IDs, try to convert to UUID if it looks like one, otherwise pass as-is
+        # For str IDs, only convert to UUID if the model's primary key is actually UUID type
         if isinstance(object_id, str):
-            try:
-                id_to_fetch: UUID | int | str = UUID(object_id)
-            except ValueError:
+            # Check if the model's primary key column is a UUID type
+            from sqlalchemy import UUID as SQLAlchemyUUID
+            pk_column = self.crud.model.__table__.primary_key.columns.values().__iter__().__next__()
+            is_uuid_pk = isinstance(pk_column.type, SQLAlchemyUUID)
+
+            if is_uuid_pk:
+                try:
+                    id_to_fetch: UUID | int | str = UUID(object_id)
+                except ValueError:
+                    id_to_fetch = object_id
+            else:
+                # For string-based primary keys (like API keys), use the string as-is
                 id_to_fetch = object_id
         else:
             id_to_fetch = object_id
