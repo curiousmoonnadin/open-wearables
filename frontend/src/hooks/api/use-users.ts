@@ -27,11 +27,11 @@ export function useUser(id: string) {
   });
 }
 
-export function useCreateUser() {
+export function useCreateUser(apiKey?: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: UserCreate) => usersService.create(data),
+    mutationFn: (data: UserCreate) => usersService.create(data, apiKey),
     onSuccess: () => {
       // Invalidate users list
       queryClient.invalidateQueries({ queryKey: queryKeys.users.lists() });

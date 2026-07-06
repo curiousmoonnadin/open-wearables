@@ -77,7 +77,10 @@ export const apiClient = {
       ...(options.headers as Record<string, string>),
     };
 
-    if (token) {
+    if (headers['X-Open-Wearables-API-Key']) {
+      // API key takes precedence — omit the JWT Authorization header so the
+      // backend's _require_api_key() uses the X-Open-Wearables-API-Key path.
+    } else if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
 

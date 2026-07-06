@@ -40,8 +40,10 @@ export const usersService = {
     return apiClient.get<UserRead>(API_ENDPOINTS.userDetail(id));
   },
 
-  async create(data: UserCreate): Promise<UserRead> {
-    return apiClient.post<UserRead>(API_ENDPOINTS.users, data);
+  async create(data: UserCreate, apiKey?: string): Promise<UserRead> {
+    return apiClient.post<UserRead>(API_ENDPOINTS.users, data, {
+      ...(apiKey && { headers: { 'X-Open-Wearables-API-Key': apiKey } }),
+    });
   },
 
   async update(id: string, data: UserUpdate): Promise<UserRead> {
