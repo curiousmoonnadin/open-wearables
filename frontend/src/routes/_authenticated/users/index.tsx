@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useState, useCallback } from 'react';
 import { Plus, Users as UsersIcon } from 'lucide-react';
 import { useUsers, useDeleteUser, useCreateUser } from '@/hooks/api/use-users';
+import { useApiKeys } from '@/hooks/api/use-credentials';
 import type { UserCreate, UserQueryParams } from '@/lib/api/types';
 import { UsersTable } from '@/components/users/users-table';
 import { Button } from '@/components/ui/button';
@@ -43,8 +44,10 @@ function UsersPage() {
   });
 
   const { data, isLoading, isFetching, error, refetch } = useUsers(queryParams);
+  const { data: apiKeys } = useApiKeys();
+  const activeApiKey = apiKeys?.[0]?.id;
   const deleteUser = useDeleteUser();
-  const createUser = useCreateUser();
+  const createUser = useCreateUser(activeApiKey);
 
   const handleQueryChange = useCallback((params: UserQueryParams) => {
     setQueryParams(params);
