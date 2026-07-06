@@ -1,7 +1,8 @@
-from sqlalchemy.orm import Mapped
+from sqlalchemy import String
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import BaseDbModel
-from app.mappings import FKDeveloper, PrimaryKey, str_64
+from app.mappings import FKDeveloper
 
 
 class ApiKey(BaseDbModel):
@@ -9,6 +10,9 @@ class ApiKey(BaseDbModel):
 
     __tablename__ = "api_key"
 
-    id: Mapped[PrimaryKey[str_64]]  # The actual key value (sk-...)
+    # Explicit String primary key. API keys are arbitrary strings and may look
+    # like a UUID; keep the column varchar so lookups never emit a `::uuid` cast
+    # (which fails with "operator does not exist: character varying = uuid").
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str]
     created_by: Mapped[FKDeveloper | None]
